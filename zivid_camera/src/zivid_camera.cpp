@@ -37,6 +37,7 @@
 #include <Zivid/Image.h>
 #include <Zivid/Settings2D.h>
 #include <Zivid/Version.h>
+#include <image_transport/version.h>
 
 #include <cstdint>
 #include <map>
@@ -213,6 +214,14 @@ Enum parameterStringToEnum(
   return it->second;
 }
 
+Zivid::CameraIntrinsics cameraIntrinsicsFrom3DSettings(
+  const Zivid::Camera & camera, const Zivid::Settings & settings)
+{
+  if (settings.color().hasValue()) {
+    return Zivid::Experimental::Calibration::intrinsics(camera, settings.color().value());
+  }
+  return Zivid::Experimental::Calibration::intrinsics(camera, settings);
+}
 }  // namespace
 
 namespace zivid_camera
@@ -226,8 +235,10 @@ constexpr auto color_space = "color_space";
 constexpr auto intrinsics_source = "intrinsics_source";
 }  // namespace ParamNames
 
-ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
-: rclcpp::Node{"zivid_camera", options},
+ZividCamera::ZividCamera(
+  const std::string & node_name, const std::string & ns, const rclcpp::NodeOptions & options,
+  std::shared_ptr<Zivid::Application> application)
+: rclcpp::Node{node_name, ns, options},
   color_space_name_value_map_{
     {"srgb", zivid_camera::ColorSpace::sRGB},
     {"linear_rgb", zivid_camera::ColorSpace::LinearRGB},
@@ -236,8 +247,11 @@ ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
     {"camera", zivid_camera::IntrinsicsSource::Camera},
     {"frame", zivid_camera::IntrinsicsSource::Frame},
   },
-  zivid_{std::make_unique<Zivid::Application>(
-    Zivid::Detail::createApplicationForWrapper(Zivid::Detail::EnvironmentInfo::Wrapper::ros2))},
+  zivid_{
+    application == nullptr
+      ? std::make_shared<Zivid::Application>(
+          Zivid::Detail::createApplicationForWrapper(Zivid::Detail::EnvironmentInfo::Wrapper::ros2))
+      : application},
   set_parameters_callback_handle_{this->add_on_set_parameters_callback(
     std::bind(&ZividCamera::setParametersCallback, this, std::placeholders::_1))}
 {
@@ -253,8 +267,8 @@ ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
   // parameters" event to fire, and we want to handle that first event in order to log it.
   // Therefore, we ensure the controllers are initialized to nullptr before initializing the
   // callback in the initializer list and then construct the controllers here afterward.
-  settings_controller_ = std::make_unique<CaptureSettingsController<Zivid::Settings>>(*this);
-  settings_2d_controller_ = std::make_unique<CaptureSettingsController<Zivid::Settings2D>>(*this);
+  settings_controller_ = std::make_unique<CaptureSettingsController<Zivid::Settings> >(*this);
+  settings_2d_controller_ = std::make_unique<CaptureSettingsController<Zivid::Settings2D> >(*this);
 
   const auto serial_number = declare_parameter<std::string>(ParamNames::serial_number, "");
 
@@ -364,14 +378,11 @@ ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
   normals_xyz_publisher_ = create_publisher<sensor_msgs::msg::PointCloud2>(
     "normals/xyz", getQoSLatched(use_latched_publisher_for_normals_xyz_));
 
-  color_image_publisher_ = image_transport::create_camera_publisher(
-    this, "color/image_color",
-    getQoSLatched(use_latched_publisher_for_color_image_).get_rmw_qos_profile());
-  depth_image_publisher_ = image_transport::create_camera_publisher(
-    this, "depth/image",
-    getQoSLatched(use_latched_publisher_for_depth_image_).get_rmw_qos_profile());
-  snr_image_publisher_ = image_transport::create_camera_publisher(
-    this, "snr/image", getQoSLatched(use_latched_publisher_for_snr_image_).get_rmw_qos_profile());
+  color_image_publisher_ =
+    createCameraPublisher("color/image_color", use_latched_publisher_for_color_image_);
+  depth_image_publisher_ =
+    createCameraPublisher("depth/image", use_latched_publisher_for_depth_image_);
+  snr_image_publisher_ = createCameraPublisher("snr/image", use_latched_publisher_for_snr_image_);
 
   RCLCPP_INFO(get_logger(), "Advertising services");
 
@@ -413,6 +424,11 @@ ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
     *this, *camera_, *settings_2d_controller_, ControllerInterface{*this});
 
   RCLCPP_INFO(get_logger(), "Zivid camera driver is now ready!");
+}
+
+ZividCamera::ZividCamera(const rclcpp::NodeOptions & options)
+: ZividCamera("zivid_camera", "", options, nullptr)
+{
 }
 
 ZividCamera::~ZividCamera() = default;
@@ -658,7 +674,7 @@ void ZividCamera::publishFrame(const Zivid::Frame & frame)
         const auto intrinsics_source = intrinsicsSource();
         switch (intrinsics_source) {
           case IntrinsicsSource::Camera:
-            return Zivid::Experimental::Calibration::intrinsics(*camera_);
+            return cameraIntrinsicsFrom3DSettings(*camera_, frame.settings());
           case IntrinsicsSource::Frame:
             return Zivid::Experimental::Calibration::estimateIntrinsics(frame);
           default:
@@ -696,7 +712,8 @@ void ZividCamera::publishFrame2D(const Zivid::Frame2D & frame2D)
   if (shouldPublishColorImg()) {
     const auto color_space = colorSpace();
     const auto header = makeHeader();
-    const auto intrinsics = Zivid::Experimental::Calibration::intrinsics(*camera_);
+    const auto intrinsics =
+      Zivid::Experimental::Calibration::intrinsics(*camera_, frame2D.settings());
 
     switch (color_space) {
       case ColorSpace::sRGB: {
@@ -947,7 +964,7 @@ Zivid::Frame ZividCamera::invokeCaptureAndPublishFrame(const Zivid::Settings & s
 
   serviceHandlerHandleCameraConnectionLoss();
 
-  RCLCPP_INFO(get_logger(), "Capturing with %zd acquisition(s)", settings.acquisitions().size());
+  RCLCPP_INFO(get_logger(), "Capturing with %zu acquisition(s)", settings.acquisitions().size());
   RCLCPP_DEBUG_STREAM(get_logger(), settings);
   const auto frame = camera_->capture(settings);
   publishFrame(frame);
@@ -1010,6 +1027,23 @@ void ZividCamera::exportFrame(
   } else {
     throw std::runtime_error("Unknown extension `" + extension + "`.");
   }
+}
+
+image_transport::CameraPublisher ZividCamera::createCameraPublisher(
+  const std::string & topic, bool use_latched_publisher)
+{
+// In image_transport 6.3.0, the create_camera_publisher using rmw_qos_profile_t was deprecated in favor of the
+// rclcpp::QoS overload. Then, in 6.4.0, the latter changed from taking a Node * to a NodeInterfaces.
+// We skip adding a branch for the 6.3.x version, because it is not shipped with any of the ROS distros we support.
+// TODO: remove this when dropping support for Jazzy
+#if (IMAGE_TRANSPORT_VERSION_MAJOR > 6) || \
+  (IMAGE_TRANSPORT_VERSION_MAJOR == 6 && IMAGE_TRANSPORT_VERSION_MINOR >= 4)
+  return image_transport::create_camera_publisher(
+    *this, topic, getQoSLatched(use_latched_publisher));
+#else
+  return image_transport::create_camera_publisher(
+    this, topic, getQoSLatched(use_latched_publisher).get_rmw_qos_profile());
+#endif
 }
 }  // namespace zivid_camera
 

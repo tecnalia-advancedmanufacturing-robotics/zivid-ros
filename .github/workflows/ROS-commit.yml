@@ -2,13 +2,18 @@ name: ROS Commit
 # Note: If the workflow name is changed, the CI badge URL in the README must also be updated
 
 on:
-  push:           # Push trigger runs on any pushed branch.
-  pull_request:   # Run on new and updated PR's.
+  push:          # Push trigger runs only on long-lived branches; topic branches are
+    branches:    # covered by the pull_request trigger, so CI does not run twice.
+      - master
+      - ros1-master
+      - ros1-sdk-2.14.0
+  pull_request:  # Run on new and updated PR's, including PR's from forks.
   schedule:      # Scheduled trigger runs on the latest commit on the default branch.
     - cron:  '0 22 * * *'
+  workflow_dispatch:  # Allow re-running CI manually, without pushing an empty commit.
 
 env:
-  NEWEST_ZIVID_VERSION: '2.16.0+46cdaba6-1'
+  NEWEST_ZIVID_VERSION: '2.18.0+1b44dbef-1'
 
 jobs:
   code-analysis:
@@ -16,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           lfs: false
       - name: Run code_analysis.sh
         run: |
-          CI_TEST_OS=ros:humble-ros-base-jammy \
+          CI_TEST_OS=ros:lyrical-ros-core-resolute \
           ./continuous-integration/run_code_analysis_in_docker.sh
       - name: Notify Teams
         if: ${{ failure() && github.ref == 'refs/heads/master' }}
@@ -34,28 +39,16 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: ['ros:humble-ros-base-jammy', 'ros:jazzy-ros-core-noble']
+        os: ['ros:humble-ros-base-jammy', 'ros:jazzy-ros-core-noble', 'ros:lyrical-ros-core-resolute']
         compiler: ['g++', 'clang++']
         include:
-          - os: 'ros:humble-ros-base-jammy'
-            compiler: 'g++-12'
-          - os: 'ros:humble-ros-base-jammy'
-            compiler: 'g++-13'
-          - os: 'ros:humble-ros-base-jammy'
-            compiler: 'clang++-15'
-          - os: 'ros:jazzy-ros-core-noble'
-            compiler: 'clang++-14'
-          - os: 'ros:jazzy-ros-core-noble'
-            compiler: 'clang++-15'
-          - os: 'ros:jazzy-ros-core-noble'
-            compiler: 'clang++-16'
-          - os: 'ros:jazzy-ros-core-noble'
-            compiler: 'clang++-17'
-          - os: 'ros:jazzy-ros-core-noble'
-            compiler: 'clang++-18'
+          - os: 'ros:lyrical-ros-core-resolute'
+            compiler: 'g++-16'
+          - os: 'ros:lyrical-ros-core-resolute'
+            compiler: 'clang++-22'
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           lfs: false
       - name: Build and Test
@@ -75,11 +68,11 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        zivid-version: ['2.15.0+5fcc365b-1']
+        zivid-version: ['2.15.0+5fcc365b-1', '2.16.0+46cdaba6-1', '2.17.0+5fc9f05e-1']
         ros-distro: ['ros:humble-ros-base-jammy']
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           lfs: false
       - name: Build and Test

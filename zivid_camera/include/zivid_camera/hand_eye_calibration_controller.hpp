@@ -29,7 +29,8 @@
 #pragma once
 
 #include <Zivid/Calibration/HandEye.h>
-#include <Zivid/Experimental/Calibration/InfieldCorrection.h>
+#include <Zivid/Calibration/MarkerDictionary.h>
+#include <Zivid/Camera.h>
 
 #include <filesystem>
 #include <rclcpp/rclcpp.hpp>
@@ -42,12 +43,6 @@
 #include <zivid_interfaces/srv/hand_eye_calibration_capture.hpp>
 #include <zivid_interfaces/srv/hand_eye_calibration_load.hpp>
 #include <zivid_interfaces/srv/hand_eye_calibration_start.hpp>
-
-namespace Zivid
-{
-class Camera;
-class Settings;
-}  // namespace Zivid
 
 namespace zivid_camera
 {

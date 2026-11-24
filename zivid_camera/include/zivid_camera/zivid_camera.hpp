@@ -88,7 +88,10 @@ class ControllerInterface;
 class ZividCamera : public rclcpp::Node
 {
 public:
-  ZIVID_CAMERA_ROS_PUBLIC ZividCamera(const rclcpp::NodeOptions & options);
+  ZIVID_CAMERA_ROS_PUBLIC explicit ZividCamera(const rclcpp::NodeOptions & options);
+  ZIVID_CAMERA_ROS_PUBLIC ZividCamera(
+    const std::string & node_name, const std::string & ns, const rclcpp::NodeOptions & options,
+    std::shared_ptr<Zivid::Application> application);
   ~ZividCamera() override;
   ZIVID_CAMERA_ROS_PUBLIC Zivid::Application & zividApplication();
 
@@ -172,6 +175,8 @@ private:
   IntrinsicsSource intrinsicsSource() const;
   static void exportFrame(
     const Zivid::Frame & frame, const std::string & file_name, ColorSpace color_space);
+  image_transport::CameraPublisher createCameraPublisher(
+    const std::string & topic, bool use_latched_publisher);
 
   friend class ControllerInterface;
 
@@ -206,7 +211,7 @@ private:
   std::unique_ptr<HandEyeCalibrationController> hand_eye_calibration_controller_;
   std::unique_ptr<ProjectionController> projection_controller_;
 
-  std::unique_ptr<Zivid::Application> zivid_;
+  std::shared_ptr<Zivid::Application> zivid_;
   CameraStatus camera_status_{CameraStatus::Idle};
   std::unique_ptr<CaptureSettingsController<Zivid::Settings>> settings_controller_;
   std::unique_ptr<CaptureSettingsController<Zivid::Settings2D>> settings_2d_controller_;
